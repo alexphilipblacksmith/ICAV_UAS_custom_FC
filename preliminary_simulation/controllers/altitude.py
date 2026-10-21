@@ -1,4 +1,3 @@
-import numpy as np
 from preliminary_simulation.controller import PIDController
 
 class altitudeController:
