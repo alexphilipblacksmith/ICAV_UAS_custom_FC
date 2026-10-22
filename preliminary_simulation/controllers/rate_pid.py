@@ -2,7 +2,7 @@ from preliminary_simulation.controller import PIDController
 
 class ratePIDController:
 
-    #array Convention: [yaw, pitch, roll]
+    # Array Convention: [yaw, pitch, roll]
 
     def __init__(self, Kp, Ki, Kd):
         self.yawRatePID = PIDController(Kp[0], Ki[0], Kd[0])
