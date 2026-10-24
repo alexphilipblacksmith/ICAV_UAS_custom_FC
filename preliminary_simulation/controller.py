@@ -11,7 +11,7 @@ class PIDController:
     def update(self, targetVal, measuredVal, dt):
         error = targetVal - measuredVal
         self.integral += error * dt
-        self.integral = np.clip(self.integral, -100, 100)  # integral limits to be tuned
+        # self.integral = np.clip(self.integral, -100, 100)  # integral limits to be tuned
         if dt > 0:
             derivative = (error - self.previous_error) /dt
         else:
