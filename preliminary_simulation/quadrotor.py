@@ -153,48 +153,90 @@ class Quadrotor:
         if dt <= 0:
             raise ValueError("Time step dt must be positive.")
 
-        motor_speeds = np.clip(np.asarray(motor_speeds), 0.0, self.omega_max)
+        self.motor_speeds = np.clip(np.asarray(motor_speeds), 0.0, self.omega_max)
+
+
+        ## Update position and velocity states 
 
         # Create rotation matrix from body frame to world frame
         rotation_matrix = self.rotation_matrix()
-        forces_body, moments_body = self.forces_and_moments(motor_speeds)
+        forces_body, moments_body = self.forces_and_moments(self.motor_speeds)
 
         # Rotate body-frame forces and moments to world-frame
         forces_world = rotation_matrix @ forces_body
-        moments_world = rotation_matrix @ moments_body
 
         acceleration = forces_world /self.mass + np.array([0, 0, self.g])  # Calculate accelration and include gravity in world frame
         self.velocity += acceleration * dt # Integrate acceleration to update velocity
         self.position += self.velocity * dt # Integrate velocity to update position
 
+
+        ## Update angular velocity states
+
+        old_angular_velocity = self.angular_velocity.copy()  # Store old angular velocity for later use
+        
         #Angular acceleration equation: omega_dot = I_inv(body_torque - omega x (I * omega))
-        ang_accel = np.linalg.inv(self.inertia) @ (moments_body - np.cross(self.angular_velocity, self.inertia @ self.angular_velocity))
+        ang_accel = np.linalg.solve(self.inertia, moments_body - np.cross(self.angular_velocity, self.inertia @ self.angular_velocity))
         self.angular_velocity += ang_accel * dt # Integrate angular acceleration and update angular velocity
 
+
+        ## Update quaternion state
+
+        avg_angular_velocity = (old_angular_velocity + self.angular_velocity) / 2  # Average angular velocity for quaternion update
+
+        # q_dot = 1/2 * Q(q) x omega, where Q(q) is the quaternion matrix and omega is the angular velocity vector
         w, x, y, z = self.quaternion
-        p, q, r = self.angular_velocity
-        Quaternion_mat = ([w, -x, -y, -z]
-                          [x, w, -z, y]
-                          [y, z, w, -x]
-                          [z, -y, x, w])
-        omega_quat = np.array([0, p, q, r])
+        p, q, r = avg_angular_velocity  # body frame average angular velocities over timestep
+        Quaternion_mat = np.array([[w, -x, -y, -z],
+                          [x, w, -z, y],
+                          [y, z, w, -x],
+                          [z, -y, x, w]])
+        omega_quat = np.array([0, p, q, r])        
         q_dot = 0.5 * Quaternion_mat @ omega_quat
         self.quaternion += q_dot * dt # Integrate q_dot
-        self.quaternion /= np.linalg.norm(self.quaternion) #update quaternion state
+
+        # Update angular velocities after using the old angular velocity to compute q_dot
+        q_norm = np.linalg.norm(self.quaternion)
+        if q_norm > 0 and np.isfinite(q_norm):
+            self.quaternion /= np.linalg.norm(self.quaternion) # update quaternion state
+        else:
+            raise ValueError("Quaternion norm is zero or not finite, cannot normalize.")
+
+        
 
     def derivatives(self, state: np.ndarray, motor_speeds: np.ndarray) -> np.ndarray:
         pass
 
     def step(self, motor_speeds: np.ndarray, dt: float):
-        pass
+        """Step the simulation forward by dt seconds. (Calls update, but is cleaner for external use.)"""
+        self.update(motor_speeds, dt)
 
     # State helpers
     def get_state(self) -> np.ndarray:
-        pass
+        """Return the current state as a 13-element vector: [position(3), velocity(3), quaternion(4), angular_velocity(3)]."""
+
+        return np.concatenate([self.position, self.velocity, self.quaternion, self.angular_velocity])
 
     def set_state(self, state: np.ndarray):
-        pass
+        """Set the current state from a 13-element vector: [position(3), velocity(3), quaternion(4), angular_velocity(3)]."""
+        if len(state) != 13:
+            raise ValueError("State vector must have 13 elements.")
+        self.position = state[0:3].copy()
+        self.velocity = state[3:6].copy()
+        self.quaternion = state[6:10].copy()
+        self.angular_velocity = state[10:13].copy()
 
+        #Ensure quaternion can be and is normalised
+        q_norm = np.linalg.norm(self.quaternion)
+        if q_norm > 0 and np.isfinite(q_norm):
+            self.quaternion /= np.linalg.norm(self.quaternion) # update quaternion state
+        else:
+            raise ValueError("Quaternion norm is zero or not finite, cannot normalize.")
+
+        
     def reset(self):
-        pass
+        self.position = np.zeros(3)
+        self.velocity = np.zeros(3)
+        self.quaternion = np.array([1.0, 0.0, 0.0, 0.0])
+        self.angular_velocity = np.zeros(3)
+        self.motor_speeds = np.zeros(4)
 
