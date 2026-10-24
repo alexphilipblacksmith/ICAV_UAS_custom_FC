@@ -147,7 +147,40 @@ class Quadrotor:
         #Scipy takes quaternion in [x, y, z, w] order, so np.roll reorders the quaternion array
         return Rotation.from_quat(np.roll(self.quaternion, -1)).as_matrix() # create a rotation matrix from the quaternion
 
-    
+    def update(self, motor_speeds: np.ndarray, dt: float):
+        """Update the quadrotor after dt seconds given the motor speeds (rad/s)."""
+
+        if dt <= 0:
+            raise ValueError("Time step dt must be positive.")
+
+        motor_speeds = np.clip(np.asarray(motor_speeds), 0.0, self.omega_max)
+
+        # Create rotation matrix from body frame to world frame
+        rotation_matrix = self.rotation_matrix()
+        forces_body, moments_body = self.forces_and_moments(motor_speeds)
+
+        # Rotate body-frame forces and moments to world-frame
+        forces_world = rotation_matrix @ forces_body
+        moments_world = rotation_matrix @ moments_body
+
+        acceleration = forces_world /self.mass + np.array([0, 0, self.g])  # Calculate accelration and include gravity in world frame
+        self.velocity += acceleration * dt # Integrate acceleration to update velocity
+        self.position += self.velocity * dt # Integrate velocity to update position
+
+        #Angular acceleration equation: omega_dot = I_inv(body_torque - omega x (I * omega))
+        ang_accel = np.linalg.inv(self.inertia) @ (moments_body - np.cross(self.angular_velocity, self.inertia @ self.angular_velocity))
+        self.angular_velocity += ang_accel * dt # Integrate angular acceleration and update angular velocity
+
+        w, x, y, z = self.quaternion
+        p, q, r = self.angular_velocity
+        Quaternion_mat = ([w, -x, -y, -z]
+                          [x, w, -z, y]
+                          [y, z, w, -x]
+                          [z, -y, x, w])
+        omega_quat = np.array([0, p, q, r])
+        q_dot = 0.5 * Quaternion_mat @ omega_quat
+        self.quaternion += q_dot * dt # Integrate q_dot
+        self.quaternion /= np.linalg.norm(self.quaternion) #update quaternion state
 
     def derivatives(self, state: np.ndarray, motor_speeds: np.ndarray) -> np.ndarray:
         pass
