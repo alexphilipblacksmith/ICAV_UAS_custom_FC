@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 @dataclass
 class Quadrotor:
@@ -139,7 +140,14 @@ class Quadrotor:
 
     # Dynamics
     def rotation_matrix(self) -> np.ndarray:
-        pass
+        """Rotation matrix to map body-frame vectors to world-frame vectors"""
+
+
+        # Quarternion is in [w, x, y, z] by code convention
+        #Scipy takes quaternion in [x, y, z, w] order, so np.roll reorders the quaternion array
+        return Rotation.from_quat(np.roll(self.quaternion, -1)).as_matrix() # create a rotation matrix from the quaternion
+
+    
 
     def derivatives(self, state: np.ndarray, motor_speeds: np.ndarray) -> np.ndarray:
         pass
@@ -156,3 +164,4 @@ class Quadrotor:
 
     def reset(self):
         pass
+

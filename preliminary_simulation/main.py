@@ -1,4 +1,4 @@
-from preliminary_simulation.quadrotor import Quadrotor
+from quadrotor import Quadrotor
 import numpy as np
 
 # Create drone object
@@ -14,4 +14,3 @@ target = [0, 0, 0] # Target position vector [x, y, z]
 # State history
 position_history = []
 velocity_history = []
-

@@ -1,4 +1,4 @@
-from preliminary_simulation.controller import PIDController
+from controller import PIDController
 
 class ratePIDController:
 
