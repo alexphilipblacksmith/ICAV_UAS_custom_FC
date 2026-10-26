@@ -166,6 +166,8 @@ class Quadrotor:
         forces_world = rotation_matrix @ forces_body
 
         acceleration = forces_world /self.mass + np.array([0, 0, self.g])  # Calculate accelration and include gravity in world frame
+        #if self.position[2] == 0:
+         #   acceleration -= np.array([0,0,self.g])
         self.velocity += acceleration * dt # Integrate acceleration to update velocity
         self.position += self.velocity * dt # Integrate velocity to update position
 
@@ -197,7 +199,7 @@ class Quadrotor:
         # Update angular velocities after using the old angular velocity to compute q_dot
         q_norm = np.linalg.norm(self.quaternion)
         if q_norm > 0 and np.isfinite(q_norm):
-            self.quaternion /= np.linalg.norm(self.quaternion) # update quaternion state
+            self.quaternion /= q_norm # update quaternion state
         else:
             raise ValueError("Quaternion norm is zero or not finite, cannot normalize.")
 

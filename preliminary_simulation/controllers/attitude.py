@@ -1,24 +1,46 @@
 from controller import PIDController
+import numpy as np
+from scipy.spatial.transform import Rotation
 
 class attitudeController:
 
-    #Array Convention: [yaw, pitch, roll]
+    # Attitude controller takes and compares quaternions
     
     def __init__(self, Kp, Ki, Kd):
 
-        self.yawPID = PIDController(Kp[0], Ki[0], Kd[0])
-        self.pitchPID = PIDController(Kp[1], Ki[1], Kd[1])
-        self.rollPID = PIDController(Kp[2], Ki[2], Kd[2])
+        #Each coefficient is a 3D array, affecting roll, pitch, yaw, in that order
+        self.Kp = np.asarray(Kp)
+        self.Ki = np.asarray(Ki)
+        self.Kd = np.asarray(Kd)
 
-    def update(self, target, measured, dt):
+        self.integral = np.zeros(3)
+        self.previousError = np.zeros(3)
 
-        yawCommand = self.yawPID.update(target[0], measured[0], dt)
-        pitchCommand = self.pitchPID.update(target[1], measured[1], dt)
-        rollCommand = self.rollPID.update(target[2], measured[2], dt)
-       
-        return [yawCommand, pitchCommand, rollCommand] # return output commands for yaw pitch and roll
+    def update(self, targetQuat, measuredQuat, dt, integralLimit = None):
+
+        if dt <= 0:
+            raise ValueError("dt should be positive!")
+        
+        #Find rotation error using scipy, then convert rotation object back to quaternion
+        rotationCurrent = Rotation.from_quat(np.roll(measuredQuat, -1))
+        rotationTarget = Rotation.from_quat(np.roll(targetQuat, -1))
+
+        rotationErr = rotationCurrent.inv() * rotationTarget
+
+        errorVec = rotationErr.as_rotvec()
+
+        self.integral += errorVec *dt
+        if integralLimit is not None:
+            self.integral = np.clip(self.integral, -integralLimit, integralLimit)
+
+        derivative = (errorVec-self.previousError)/dt
+
+        self.previousError = errorVec.copy()
+        
+        return self.Kp * errorVec + self.Ki * self.integral + self.Kd * derivative
+  
 
     def reset(self):
-        self.rollPID.reset()
-        self.pitchPID.reset()
-        self.yawPID.reset()
+        self.integral = np.zeros(3)
+        self.previousError = np.zeros(3)
+        
