@@ -32,7 +32,7 @@ rateCtrl = RatePIDController(kp=[0.3, 0.3, 0.2], ki=[0.05, 0.05, 0.05], kd=[0.0,
                               outputLimit=maxMoment)                                   # Array convention: [roll, pitch, yaw]
 
 ## Simulation parameters ##
-dt = 0.01                           # Time step [s]
+dt = 0.1                           # Time step [s]
 simDuration = 20                    # Simulation duration [s]
 simSteps = int(simDuration / dt)    # Number of simulation steps
 time = 0                            # Elapsed time of simulation [s]
@@ -102,7 +102,6 @@ for step in range(simSteps):
 
     drone.step(desiredMotorSpeeds, dt)
 
-    # Motor speeds actually applied during this step (after the drone's omegaMax clamp)
     motorSpeedHistory.append(drone.motorSpeeds.copy())
     desiredAttitudeHistory.append([desiredRoll, desiredPitch, desiredYaw])
 
