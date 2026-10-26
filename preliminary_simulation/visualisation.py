@@ -1,6 +1,10 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
+radPerSecToRpm = 60 / (2 * np.pi)  # [rad/s] -> [rpm]
+
+motorNames = ["Motor 1 (front, CW)", "Motor 2 (right, CCW)", "Motor 3 (back, CW)", "Motor 4 (left, CCW)"]
+
 class PathPlotter3D:
     def __init__(self, target, updateFrequency=5, limit=20):
         """
@@ -90,6 +94,67 @@ class PathPlotter3D:
         plt.pause(0.001)
 
     def finish(self):
-        """Keeps the final plot window open after the simulation ends."""
+        """Keeps the final plot windows open after the simulation ends."""
         plt.ioff()
         plt.show()
+
+
+def plotMotorSpeeds(timeHistory, motorSpeedHistory, omegaMax=None):
+    """Window with 4 graphs: speed of each motor vs time, in rpm.
+
+    Args:
+        timeHistory: shape (N,) [s]
+        motorSpeedHistory: shape (N, 4), motors 1..4 [rad/s]
+        omegaMax: optional motor speed limit [rad/s], drawn as a dashed line
+    """
+    rpm = np.asarray(motorSpeedHistory) * radPerSecToRpm
+
+    fig, axes = plt.subplots(2, 2, sharex=True, sharey=True, figsize=(12, 8))
+    fig.canvas.manager.set_window_title("Motor speeds")
+
+    for i, ax in enumerate(axes.flat):
+        ax.plot(timeHistory, rpm[:, i], color="royalblue", linewidth=1.2)
+        if omegaMax is not None:
+            ax.axhline(omegaMax * radPerSecToRpm, color="grey", linestyle="--", linewidth=1, label="Limit")
+            ax.legend(loc="lower right")
+        ax.set_title(motorNames[i])
+        ax.grid(True)
+
+    for ax in axes[1, :]:
+        ax.set_xlabel("Time [s]")
+    for ax in axes[:, 0]:
+        ax.set_ylabel("Speed [rpm]")
+
+    fig.suptitle("Motor speeds")
+    fig.tight_layout()
+    return fig
+
+
+def plotAttitude(timeHistory, attitudeHistory, desiredAttitudeHistory=None):
+    """Window with 3 graphs: roll, pitch and yaw vs time, in degrees.
+
+    Roll and pitch are relative to the horizon, yaw is the heading relative to world x (north).
+
+    Args:
+        timeHistory: shape (N,) [s]
+        attitudeHistory: shape (N, 3), [roll, pitch, yaw] [rad]
+        desiredAttitudeHistory: optional shape (N, 3), commanded [roll, pitch, yaw] [rad], drawn dashed
+    """
+    angles = np.degrees(attitudeHistory)
+
+    fig, axes = plt.subplots(3, 1, sharex=True, figsize=(12, 8))
+    fig.canvas.manager.set_window_title("Attitude")
+
+    for i, (ax, name) in enumerate(zip(axes, ["Roll", "Pitch", "Yaw"])):
+        ax.plot(timeHistory, angles[:, i], color="royalblue", linewidth=1.2, label="Actual")
+        if desiredAttitudeHistory is not None:
+            ax.plot(timeHistory, np.degrees(desiredAttitudeHistory)[:, i],
+                    color="crimson", linestyle="--", linewidth=1, label="Desired")
+            ax.legend(loc="upper right")
+        ax.set_ylabel(f"{name} [deg]")
+        ax.grid(True)
+
+    axes[-1].set_xlabel("Time [s]")
+    fig.suptitle("Attitude (roll and pitch relative to horizon, yaw relative to north)")
+    fig.tight_layout()
+    return fig
