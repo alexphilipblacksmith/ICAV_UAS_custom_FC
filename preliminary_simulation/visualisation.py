@@ -1,3 +1,5 @@
+from dataclasses import dataclass, field
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -5,25 +7,37 @@ radPerSecToRpm = 60 / (2 * np.pi)  # [rad/s] -> [rpm]
 
 motorNames = ["Motor 1 (front, CW)", "Motor 2 (right, CCW)", "Motor 3 (back, CW)", "Motor 4 (left, CCW)"]
 
+@dataclass(eq=False)
 class PathPlotter3D:
-    def __init__(self, target, updateFrequency=5, limit=20):
-        """
-        Initializes the live 3D plot window.
-        
-        Args:
-            target: [x, y, z] target location
-            updateFrequency: Redraws every N steps to keep simulation running smoothly.
-            limit: Sets the lower and upper bounds for X, Y, and Z axes (-limit to limit).
-        """
+    """Live 3D plot window of the drone's trajectory.
+
+    Args:
+        target: [x, y, z] target location
+        updateFrequency: Redraws every N steps to keep simulation running smoothly.
+        limit: Sets the lower and upper bounds for X, Y, and Z axes (-limit to limit).
+    """
+
+    # Settings (constructor arguments)
+    target: np.ndarray
+    updateFrequency: int = 5
+    limit: float = 20
+
+    # Created in __post_init__ / changed while running (not constructor arguments)
+    fig: plt.Figure = field(init=False, repr=False)
+    ax: plt.Axes = field(init=False, repr=False)
+    line: object = field(init=False, repr=False)
+    stepCount: int = field(default=0, init=False)
+    startPlotted: bool = field(default=False, init=False)
+
+    def __post_init__(self):
+        """Opens the live 3D plot window."""
+        self.target = np.asarray(self.target, dtype=float)
+
         plt.ion() # Turn on interactive mode
-        
+
         self.fig = plt.figure(figsize=(12, 10))
         self.ax = self.fig.add_subplot(111, projection='3d')
-        self.target = np.array(target)
-        self.updateFrequency = updateFrequency
-        self.stepCount = 0
-        self.limit = limit
-        
+
         # Set fixed bounds from -limit to limit for all axes
         self.setAxisLimits()
 
@@ -48,7 +62,6 @@ class PathPlotter3D:
         
         # Create an empty line object for the drone's path
         self.line, = self.ax.plot([], [], [], label='Drone Trajectory', color='royalblue', linewidth=2)
-        self.startPlotted = False
 
     def setAxisLimits(self):
         """Sets explicit fixed limits from -limit to limit for all axes."""

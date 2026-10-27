@@ -1,5 +1,7 @@
+from dataclasses import dataclass, field
 import numpy as np
 
+@dataclass
 class PIDController:
     """Single-axis PID controller.
 
@@ -7,14 +9,16 @@ class PIDController:
     target (or the very first call) does not produce a derivative kick.
     """
 
-    def __init__(self, kp, ki, kd, integralLimit=None, outputLimit=None):
-        self.kp = kp
-        self.ki = ki
-        self.kd = kd
-        self.integralLimit = integralLimit  # anti-windup clamp on the integral, None = no limit
-        self.outputLimit = outputLimit      # symmetric clamp on the output, None = no limit
-        self.integral = 0.0
-        self.previousMeasured = None
+    # Settings
+    kp: float
+    ki: float
+    kd: float
+    integralLimit: float = None
+    outputLimit: float = None
+
+    # State
+    integral: float = field(default=0.0, init=False)
+    previousMeasured: float | None = field(default=None, init=False)
 
     def update(self, targetVal, measuredVal, dt):
 
