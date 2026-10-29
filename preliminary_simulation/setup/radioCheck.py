@@ -56,7 +56,9 @@ def printSummary(axisMin, axisMax):
 
 
 def main():
-    """Main function to run the radio check test"""
+    """Main function to run the radio check test and give a csv file with the min and 
+    max values of each axis. The user is prompted to move the sticks to their extremes 
+    and the min and max values are recorded. The calibration is saved to a file for later use."""
     if os.name == "nt":
         os.system("")
 
@@ -113,8 +115,15 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        # Show the summary of axis ranges and quit pygame
         printSummary(axisMin, axisMax)
         pygame.quit()
+
+        # Save the calibration values to a file in a CSV format
+        with open("radio_check.csv", "w") as f:
+            f.write("Axis,Min,Max\n")
+            for i in range(numAxes):
+                f.write(f"{i},{axisMin[i]},{axisMax[i]}\n")
 
 if __name__ == "__main__":
     main()
