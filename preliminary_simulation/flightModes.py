@@ -2,8 +2,15 @@ from dataclasses import dataclass
 
 import numpy as np
 from scipy.spatial.transform import Rotation
+import pygame
+import os
+from setup.radioCheck import chooseJoystick
 
-from config import drone, target, desiredYaw, hoverThrust, thrustMin, thrustMax, maxTilt, altCtrl, posCtrl
+from config import drone, target, desiredYaw, hoverThrust, thrustMin, thrustMax, maxTilt, altCtrl, posCtrl, maxRate
+
+#Joystick variable
+joystick = None
+
 
 
 @dataclass
@@ -49,3 +56,39 @@ def autoFlightMode(stateVector, dt):
     desiredRoll = np.clip(np.arctan(accelRight / drone.g), -maxTilt, maxTilt)     # right side down to accelerate right
 
     return AttitudeSetpoint(roll=desiredRoll, pitch=desiredPitch, yaw=desiredYaw, thrust=desiredThrust)
+
+
+
+def manualFlightMode():
+
+    def applyDeadband(value, deadband = 0.05):
+        if abs(value) < deadband:
+            return 0
+        return value 
+
+
+    #Use chooseJoystick function from radioCheck.py to get joystick variable
+    global joystick
+    if joystick is None:
+        joystick = chooseJoystick()
+
+    for event in pygame.event.get():
+        if event.type == pygame.JOYDEVICEREMOVED:
+            raise Exception("Joystick removed")
+
+    #Assuming axes 0, 1, 2, 3 map to  Roll, Pitch, Throttle, Yaw respectively
+    #Some axes may be inverted, may need to multiply some inputs by -1
+    rollInput = applyDeadband(joystick.get_axis(0))
+    pitchInput = applyDeadband(joystick.get_axis(1))
+    throttleInput = applyDeadband(joystick.get_axis(2))
+    yawInput = applyDeadband(joystick.get_axis(3))
+
+    #Map [-1, 1] throttle input to be between [0, 1] and constrain it
+    throttleInput = (throttleInput+1.0)/2.0 
+    throttleInput = np.clip(throttleInput, 0.0, 1.0)
+
+    desiredRoll = rollInput * maxTilt
+    desiredPitch = pitchInput * maxTilt
+    desiredYawRate = yawInput * maxRate[2]
+    
+        
