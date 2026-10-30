@@ -2,7 +2,8 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 from visualisation import PathPlotter3D, plotMotorSpeeds, plotAttitude
 from config import simType, drone, dt, simSteps, target, attCtrl, rateCtrl
-from flightModes import autoFlightMode
+from flightModes import autoFlightMode, manualFlightMode
+from setup.radioCheck import chooseJoystick
 
 
 def main():
@@ -79,6 +80,12 @@ def main():
         plotAttitude(timeHistory, attitudeHistory, desiredAttitudeHistory)
         trajectory3D.finish() # shows all windows and keeps them open
     elif simType == "manual":
+        
+        joystick = chooseJoystick()
+        stateVector = drone.getState()
+
+        manualFlightMode(stateVector, dt, joystick)
+
         pass
     else:
         raise Exception("Unknown simulation type selected")

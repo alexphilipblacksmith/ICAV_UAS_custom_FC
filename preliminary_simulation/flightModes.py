@@ -60,9 +60,9 @@ def autoFlightMode(stateVector, dt):
 
 
 
-def manualFlightMode(stateVector:np.array, dt:float):
+def manualFlightMode(stateVector:np.array, dt:float, joystick):
 
-    global joystick, currentManualYaw
+    global currentManualYaw
 
     def applyDeadband(value, deadband = 0.05):
         '''Apply a deadband, mapping values below 0.05 to 0'''
@@ -99,8 +99,8 @@ def manualFlightMode(stateVector:np.array, dt:float):
         return np.clip(input, -1.0, 1.0)
 
     #Use chooseJoystick function from radioCheck.py to get joystick variable
-    if joystick is None:
-        joystick = chooseJoystick()
+   # if joystick is None:
+   #     joystick = chooseJoystick()
 
     for event in pygame.event.get():
         if event.type == pygame.JOYDEVICEREMOVED:
