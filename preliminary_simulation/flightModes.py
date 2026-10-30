@@ -4,13 +4,14 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 import pygame
 import os
+import csv
 from setup.radioCheck import chooseJoystick
 
 from config import drone, target, desiredYaw, hoverThrust, thrustMin, thrustMax, maxTilt, altCtrl, posCtrl, maxRate
 
 #Joystick variable
 joystick = None
-
+currentManualYaw = 0.0
 
 
 @dataclass
@@ -59,16 +60,45 @@ def autoFlightMode(stateVector, dt):
 
 
 
-def manualFlightMode():
+def manualFlightMode(stateVector:np.array, dt:float):
+
+    global joystick, currentManualYaw
 
     def applyDeadband(value, deadband = 0.05):
+        '''Apply a deadband, mapping values below 0.05 to 0'''
+
         if abs(value) < deadband:
             return 0
         return value 
 
+    def getCalibrationVals(file = "setup/radio_check.csv"):
+        ''' Read radio_check.csv to get the max and min values necessary to calibrate the joystick inputs'''
+
+        if not os.path.exists(file):
+            raise FileNotFoundError("File path not found.")
+
+        minVals = []
+        maxVals = []
+
+        with open(file, 'r') as f: 
+            reader =csv.DictReader(f)
+            for row in reader:
+                minVals.append(float(row["Min"]))
+                maxVals.append(float(row["Max"]))
+
+        return np.array(minVals), np.array(maxVals)
+
+    def calibrateInputs(input, minVal, maxVal, centreVal = 0):
+        '''Use max, min and centre values, to calibrate joystick inputs'''
+
+        if input >= centreVal:
+            input = (input - centreVal)/(maxVal- centreVal)
+        else:
+            input = (input -centreVal)/(centreVal - minVal)        
+
+        return np.clip(input, -1.0, 1.0)
 
     #Use chooseJoystick function from radioCheck.py to get joystick variable
-    global joystick
     if joystick is None:
         joystick = chooseJoystick()
 
@@ -78,17 +108,27 @@ def manualFlightMode():
 
     #Assuming axes 0, 1, 2, 3 map to  Roll, Pitch, Throttle, Yaw respectively
     #Some axes may be inverted, may need to multiply some inputs by -1
-    rollInput = applyDeadband(joystick.get_axis(0))
-    pitchInput = applyDeadband(joystick.get_axis(1))
-    throttleInput = applyDeadband(joystick.get_axis(2))
-    yawInput = applyDeadband(joystick.get_axis(3))
+    calMin, calMax = getCalibrationVals()
+    inputs = []
 
-    #Map [-1, 1] throttle input to be between [0, 1] and constrain it
-    throttleInput = (throttleInput+1.0)/2.0 
-    throttleInput = np.clip(throttleInput, 0.0, 1.0)
+    for i in range(4):
+        inputs.append(applyDeadband(calibrateInputs(joystick.get_axis(i),calMin[i],calMax[i])))
+    rollInput = inputs[0]
+    pitchInput = inputs[1]
+    throttleInput = np.clip(((inputs[2]+1.0)/2.0),0.0, 1.0)
+    yawInput = inputs[3]
+   
 
+
+    #Use joystick inputs to get the desired thrust, roll angle, pitch angle and yaw rate, 
+    #mapped between their minimum and maximum values
+    desiredThrust = thrustMin + throttleInput *( thrustMax - thrustMin)
     desiredRoll = rollInput * maxTilt
     desiredPitch = pitchInput * maxTilt
     desiredYawRate = yawInput * maxRate[2]
+
+    currentManualYaw += desiredYawRate * dt
+
+    return AttitudeSetpoint(roll = desiredRoll, pitch = desiredPitch, yaw = currentManualYaw, thrust = desiredThrust)
     
         
