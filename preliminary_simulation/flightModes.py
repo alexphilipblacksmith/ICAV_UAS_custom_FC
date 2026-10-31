@@ -71,11 +71,16 @@ def manualFlightMode(stateVector:np.array, dt:float, joystick):
             return 0
         return value 
 
-    def getCalibrationVals(file = "setup/radio_check.csv"):
+    def getCalibrationVals(file = None):
         ''' Read radio_check.csv to get the max and min values necessary to calibrate the joystick inputs'''
 
-        if not os.path.exists(file):
+        if os.path.exists("setup/radio_check.csv"):
+            file = "setup/radio_check.csv"
+        elif os.path.exists("radio_check.csv"):
+            file = "radio_check.csv"
+        else:
             raise FileNotFoundError("File path not found.")
+
 
         minVals = []
         maxVals = []

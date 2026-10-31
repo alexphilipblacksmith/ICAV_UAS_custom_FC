@@ -3,7 +3,7 @@ from scipy.spatial.transform import Rotation
 from visualisation import PathPlotter3D, plotMotorSpeeds, plotAttitude
 from config import simType, drone, dt, simSteps, target, attCtrl, rateCtrl
 from flightModes import autoFlightMode, manualFlightMode
-from setup.radioCheck import chooseJoystick
+import setup.radioCheck
 
 
 def main():
@@ -81,12 +81,57 @@ def main():
         trajectory3D.finish() # shows all windows and keeps them open
     elif simType == "manual":
         
-        joystick = chooseJoystick()
-        stateVector = drone.getState()
+        '''Code for manual simType. 
+        radioCheck.py needs to be run before running the main simulation 
+        to ensure that the calibration csv file exists'''
+  
 
-        manualFlightMode(stateVector, dt, joystick)
+        joystick = setup.radioCheck.chooseJoystick()
+      
+        try:
+            while True:
+                stateVector = drone.getState()
+                currentPos = stateVector[0:3] # Current position vector [x, y, z]
+                currentVel = stateVector[3:6] # Current velocity vector [vx, vy, vz] (world)
+                currentOrientation = stateVector[6:10] # Current orientation quaternion [w, x, y, z]
+                currentAngVel = stateVector[10:13] # Current angular velocity vector [p, q, r]
 
-        pass
+                currentRotation = Rotation.from_quat(np.roll(currentOrientation, -1))
+                currentYaw, currentPitch, currentRoll = currentRotation.as_euler('ZYX') # intrinsic yaw-pitch-roll
+
+                # Store state history
+                timeHistory.append(time)
+                positionHistory.append(currentPos)
+                velocityHistory.append(currentVel)
+                attitudeHistory.append([currentRoll, currentPitch, currentYaw])
+
+
+
+                setpoint = manualFlightMode(stateVector, dt, joystick)
+
+                # Convert Euler angles to target quaternion. 'ZYX' (upper case) = intrinsic yaw-pitch-roll, the aerospace convention
+                desiredQuat = Rotation.from_euler('ZYX', [setpoint.yaw, setpoint.pitch, setpoint.roll]).as_quat()
+                desiredQuat = np.roll(desiredQuat, 1) # Converts from [x,y,z,w] to [w,x,y,z]
+
+                desiredAngVel = attCtrl.update(targetQuat=desiredQuat, measuredQuat=currentOrientation, dt=dt)
+                desiredMoments = rateCtrl.update(targetRate=desiredAngVel, measuredRate=currentAngVel, dt=dt)
+
+                desiredMotorSpeeds = drone.mixer(setpoint.thrust, desiredMoments)
+
+                drone.step(desiredMotorSpeeds, dt)
+
+                motorSpeedHistory.append(drone.motorSpeeds.copy())
+                desiredAttitudeHistory.append([setpoint.roll, setpoint.pitch, setpoint.yaw])
+
+                trajectory3D.update(positionHistory)
+
+                time += dt
+        except KeyboardInterrupt:
+            pass
+        finally:
+            pass
+
+                
     else:
         raise Exception("Unknown simulation type selected")
 
