@@ -3,11 +3,7 @@ import numpy as np
 
 @dataclass
 class PIDController:
-    """Single-axis PID controller.
-
-    The derivative term acts on the measurement rather than the error, so a jump in the
-    target (or the very first call) does not produce a derivative kick.
-    """
+    """Single-axis PID controller"""
 
     # Settings
     kp: float

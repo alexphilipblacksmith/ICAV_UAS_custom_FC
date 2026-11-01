@@ -44,6 +44,8 @@ class Quadrotor:
 
     # Environment
     g: float = 9.81                                     # [m/s^2]
+    arena: np.ndarray = None                            # [length x, width y, height] of the room centred on the
+                                                        # origin [m]; None = open space (ground only)
 
     # State
     position: np.ndarray = field(default_factory=lambda: np.zeros(3))         # world [m]
@@ -128,6 +130,14 @@ class Quadrotor:
             thrust: desired total thrust magnitude (positive, acts along body -z) [N]
             moments: desired moments about body axes [N m]"""
 
+        motorSpeedsSquared = np.clip(self.motorSpeedsSquared(thrust, moments), 0.0, None)  # No negative speeds
+
+        return np.clip(np.sqrt(motorSpeedsSquared), 0.0, self.omegaMax)
+
+    def motorSpeedsSquared(self, thrust: float, moments: np.ndarray) -> np.ndarray:
+        """Squared motor speeds [rad^2/s^2] giving the desired thrust and moments, before any limits.
+        Can be negative or above omegaMax^2 when the request is not reachable."""
+
         # Mixer matrix
         l1 = self.d13 / 2
         l2 = self.d24 / 2
@@ -142,10 +152,7 @@ class Quadrotor:
         ])
 
         desired = np.array([thrust, moments[0], moments[1], moments[2]])
-        motorSpeedsSquared = np.linalg.solve(mixerMatrix, desired)
-        motorSpeedsSquared = np.clip(motorSpeedsSquared, 0.0, None)  # No negative speeds
-
-        return np.clip(np.sqrt(motorSpeedsSquared), 0.0, self.omegaMax)
+        return np.linalg.solve(mixerMatrix, desired)
 
     # Dynamics
     def rotationMatrix(self, q: np.ndarray = None) -> np.ndarray:
@@ -214,14 +221,31 @@ class Quadrotor:
         if xNew[6] < 0:
             xNew[6:10] *= -1
 
-        self.setState(xNew)  # also normalises the quaternion
+        self.setState(xNew)
         self._groundContact()
+        self._arenaContact()
 
     def _groundContact(self):
         """Simple flat ground at z = 0 (world z is down): the drone cannot sink below it."""
         if self.position[2] >= 0.0 and self.velocity[2] > 0.0:
             self.position[2] = 0.0
             self.velocity[2] = 0.0
+
+    def _arenaContact(self):
+        """Walls and ceiling of the arena: the drone stops against them (its speed into the wall is removed)."""
+        if self.arena is None:
+            return
+
+        lower = np.array([-self.arena[0] / 2, -self.arena[1] / 2, -self.arena[2]])
+        upper = np.array([self.arena[0] / 2, self.arena[1] / 2, 0.0])
+
+        for axis in range(3):
+            if self.position[axis] <= lower[axis] and self.velocity[axis] < 0.0:
+                self.position[axis] = lower[axis]
+                self.velocity[axis] = 0.0
+            elif self.position[axis] >= upper[axis] and self.velocity[axis] > 0.0:
+                self.position[axis] = upper[axis]
+                self.velocity[axis] = 0.0
 
     # State helpers
     def getState(self) -> np.ndarray:

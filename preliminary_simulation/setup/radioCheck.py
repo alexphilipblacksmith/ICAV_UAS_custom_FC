@@ -12,6 +12,7 @@ import pygame
 refreshRate = 20
 barWidth = 31
 movedThreshold = 0.1 # an axis is considered moved if its value is above this threshold
+centreSamplingTime = 1.0 # time over which the centre position of each axis is averaged [s]
 
 
 def axisBar(value, width=barWidth):
@@ -45,20 +46,33 @@ def chooseJoystick():
     return joystick
 
 
-def printSummary(axisMin, axisMax):
-    """After stopping show the range each axis covered"""
+def recordCentre(joystick, numAxes):
+    """Ask the user to let go of the sticks and average each axis over centreSamplingTime to get its centre value"""
+    input("Let go of the sticks so they spring back to the centre, then press Enter...")
+
+    sums = [0.0] * numAxes
+    samples = 0
+    endTime = time.time() + centreSamplingTime
+    while time.time() < endTime:
+        pygame.event.pump() # update the joystick state (no events were processed while waiting for Enter)
+        for i in range(numAxes):
+            sums[i] += joystick.get_axis(i)
+        samples += 1
+        time.sleep(1 / 100)
+
+    return [total / samples for total in sums]
+
+
+def printSummary(axisMin, axisCentre, axisMax):
+    """After stopping show the range each axis covered and its centre"""
     print("\nAxis summary:")
-    for i, (minVal, maxVal) in enumerate(zip(axisMin, axisMax)):
-        if minVal is None:
-            continue
+    for i, (minVal, centreVal, maxVal) in enumerate(zip(axisMin, axisCentre, axisMax)):
         note = "moved" if maxVal - minVal > movedThreshold else "not moved"
-        print(f"  Axis {i}: min={minVal:.3f}, max={maxVal:.3f} ({note})")
+        print(f"  Axis {i}: min={minVal:.3f}, centre={centreVal:.3f}, max={maxVal:.3f} ({note})")
 
 
 def main():
-    """Main function to run the radio check test and give a csv file with the min and 
-    max values of each axis. The user is prompted to move the sticks to their extremes 
-    and the min and max values are recorded. The calibration is saved to a file for later use."""
+    """Main function to run the radio check test and give a csv file with the min, centre and max values of each axis."""
     if os.name == "nt":
         os.system("")
 
@@ -71,10 +85,17 @@ def main():
     numHats = joystick.get_numhats()
 
     print(f"Using joystick: {joystick.get_name()} ({numAxes} axes, {numButtons} buttons, {numHats} hats)")
+
+    # Step 1: centre values (sticks released)
+    axisCentre = recordCentre(joystick, numAxes)
+    print("Centre values: " + ", ".join(f"{value:+.3f}" for value in axisCentre))
+
+    # Step 2: min and max values (sticks moved to their extremes)
+    print("\nNow move every stick to all of its extremes.")
     print("Press Ctrl+C to stop the test and show the axis summary.\n")
 
-    axisMin = [None] * numAxes
-    axisMax = [None] * numAxes
+    axisMin = list(axisCentre) # start from the centre so the range always contains it
+    axisMax = list(axisCentre)
     linesPrinted = 0
 
     try:
@@ -92,11 +113,11 @@ def main():
 
             # Track the range of each axis
             for i, value in enumerate(axes):
-                axisMin[i] = value if axisMin[i] is None else min(axisMin[i], value)
-                axisMax[i] = value if axisMax[i] is None else max(axisMax[i], value)
+                axisMin[i] = min(axisMin[i], value)
+                axisMax[i] = max(axisMax[i], value)
 
             # Build the output lines for axes, buttons, and hats
-            lines = [f"Axes{i}: {value:+.3f} {axisBar(value)} min={axisMin[i]:+.3f}, max={axisMax[i]:+.3f}" for i, value in enumerate(axes)]
+            lines = [f"Axes{i}: {value:+.3f} {axisBar(value)} min={axisMin[i]:+.3f}, centre={axisCentre[i]:+.3f}, max={axisMax[i]:+.3f}" for i, value in enumerate(axes)]
             pressed = [str(i) for i, value in enumerate(buttons) if value]
             lines.append(f"Buttons pressed: {', '.join(pressed) if pressed else 'None'}")
 
@@ -116,14 +137,14 @@ def main():
         pass
     finally:
         # Show the summary of axis ranges and quit pygame
-        printSummary(axisMin, axisMax)
+        printSummary(axisMin, axisCentre, axisMax)
         pygame.quit()
 
         # Save the calibration values to a file in a CSV format
         with open("radio_check.csv", "w") as f:
-            f.write("Axis,Min,Max\n")
+            f.write("Axis,Min,Centre,Max\n")
             for i in range(numAxes):
-                f.write(f"{i},{axisMin[i]},{axisMax[i]}\n")
+                f.write(f"{i},{axisMin[i]},{axisCentre[i]},{axisMax[i]}\n")
 
 if __name__ == "__main__":
     main()

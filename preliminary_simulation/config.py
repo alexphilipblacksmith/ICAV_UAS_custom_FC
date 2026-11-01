@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 
 from quadrotor import Quadrotor
@@ -41,3 +43,23 @@ simSteps = int(simDuration / dt)    # Number of simulation steps
 
 target = [-5, 20, -10] # Target position vector [x, y, z] (world NED, z down so -10 is 10 m up)
 desiredYaw = 0 # Desired yaw angle [rad]
+
+# Manual (level) mode
+manualDt = 0.01                     # Physics time step in manual mode, run in real time [s]
+maxLag = 0.25                       # If the simulation falls further behind real time than this, skip ahead [s]
+
+# Radio (Radiomaster Pocket over USB). Run setup/radioCheck.py first to create the calibration file
+calibrationFile = Path(__file__).parent / "setup" / "radio_check.csv"
+joystickIndex = 0                   # Which joystick to use if several are connected
+radioAxes = {"roll": 0, "pitch": 1, "throttle": 2, "yaw": 3}   # Joystick axis number of each stick (AETR order)
+radioSigns = {"roll": 1, "pitch": 1, "throttle": 1, "yaw": 1}  # Set to -1 if a stick moves the wrong way:
+                                    # roll right, pitch forward, yaw right and throttle up must all give +
+stickDeadband = 0.05                # Stick movements smaller than this (around the centre) are ignored
+armThrottleLimit = 0.05             # Throttle must be below this before the simulation starts
+
+# Live dashboard
+dashboardWindow = 5.0               # Time shown by the scrolling graphs [s]
+dashboardFrameRate = 20             # Redraws per second [Hz]
+
+# Arena for manual mode
+arenaSize = [10.0, 10.0, 10.0]      # [length x (north), width y (east), height] [m]
