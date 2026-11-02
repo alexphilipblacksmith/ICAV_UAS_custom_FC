@@ -9,7 +9,7 @@ from controllers.rate_pid import RatePIDController
 from controllers.attitude import AttitudeController
 
 # Simulation type (auto/manual)
-simType = "auto"
+simType = "manual"
 
 # Create drone object
 drone = Quadrotor()
@@ -52,7 +52,7 @@ maxLag = 0.25                       # If the simulation falls further behind rea
 calibrationFile = Path(__file__).parent / "setup" / "radio_check.csv"
 joystickIndex = 0                   # Which joystick to use if several are connected
 radioAxes = {"roll": 0, "pitch": 1, "throttle": 2, "yaw": 3}   # Joystick axis number of each stick (AETR order)
-radioSigns = {"roll": 1, "pitch": 1, "throttle": 1, "yaw": 1}  # Set to -1 if a stick moves the wrong way:
+radioSigns = {"roll": -1, "pitch": 1, "throttle": 1, "yaw": -1}  # Set to -1 if a stick moves the wrong way:
                                     # roll right, pitch forward, yaw right and throttle up must all give +
 stickDeadband = 0.05                # Stick movements smaller than this (around the centre) are ignored
 armThrottleLimit = 0.05             # Throttle must be below this before the simulation starts

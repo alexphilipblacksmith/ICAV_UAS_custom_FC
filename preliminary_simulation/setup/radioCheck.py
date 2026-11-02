@@ -141,7 +141,7 @@ def main():
         pygame.quit()
 
         # Save the calibration values to a file in a CSV format
-        with open("radio_check.csv", "w") as f:
+        with open("setup/radio_check.csv", "w") as f:
             f.write("Axis,Min,Centre,Max\n")
             for i in range(numAxes):
                 f.write(f"{i},{axisMin[i]},{axisCentre[i]},{axisMax[i]}\n")

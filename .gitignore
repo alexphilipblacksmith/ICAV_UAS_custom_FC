@@ -5,3 +5,6 @@ venv/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Ignore radio check calibration file
+preliminary_simulation/setup/radio_check.csv
