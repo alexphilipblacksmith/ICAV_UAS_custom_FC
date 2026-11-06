@@ -1,3 +1,4 @@
 {
-    "python-envs.defaultEnvManager": "ms-python.python:system"
+    "python-envs.defaultEnvManager": "ms-python.python:system",
+    "cmake.sourceDirectory": "C:/Users/dah25/Documents/GitHub/ICAV_UAS_custom_FC/STM32_board"
 }
