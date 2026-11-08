@@ -50,6 +50,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     CustomFC/controllers/altitudeControl.c
     CustomFC/controllers/positionControl.c
     CustomFC/controllers/rateControl.c
+    CustomFC/controllers/attitudeControl.c
 )
 
 # Add include paths

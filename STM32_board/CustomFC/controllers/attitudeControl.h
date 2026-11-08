@@ -3,16 +3,6 @@
 
 #include<stdbool.h>
 
-typedef struct{
-    float kp[3];
-    float ki[3];
-    float kd[3];
-    float integralLimit[3];
-    float outputLimit[3];
-    bool firstRun;
-}attitudeController;
-
-
 //Define a structure with individual quaternion components
 typedef struct{
     float w, x, y, z;
@@ -21,22 +11,43 @@ typedef struct{
 //Define a structure with individual vector components
 typedef struct{
     float x, y, z;
-}vector3
+}vector3;
+
+typedef struct{
+    vector3 kp;
+    vector3 ki;
+    vector3 kd;
+    vector3 integralLimit;
+    vector3 outputLimit;
+    vector3 integral;
+    vector3 previousError;
+    bool firstRun;
+}attitudeController;
 
 
+//Function declarations
 void attCtrlInit(attitudeController *attCtrl,
-                 float kp[3],
-                 float ki[3],
-                 float kd[3],
-                 float integralLimit[3], 
-                 float outputLimit[3]);
+                 vector3 kp,
+                 vector3 ki,
+                 vector3 kd,
+                 vector3 integralLimit, 
+                 vector3 outputLimit);
 
 void attCtrlUpdate(attitudeController *attCtrl,
-                   float targetQuat[4], 
-                   float measuredQuat[4], 
+                   quaternion targetQuat, 
+                   quaternion measuredQuat,
+                   float dt, 
                    float outputs[3]);
+
 
 void attCtrlReset(attitudeController *attCtrl);
 
+//Quaternion operation declarations
+quaternion quaternionConjugate(quaternion quat);
+quaternion quaternionNormalise(quaternion quat);
+quaternion quaternionMultiply(quaternion quat1, quaternion quat2);
 
-#endif
+
+
+
+#endif //ATTITUDECONTROL_H
