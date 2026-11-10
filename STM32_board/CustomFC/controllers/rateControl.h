@@ -5,14 +5,14 @@
 
 /* Body angular rate PID controller.
  * Array convention for all 3-element arrays:
- *   [0] = roll  (p, body x)
- *   [1] = pitch (q, body y)
- *   [2] = yaw   (r, body z)
+ *   [0] = roll rate  (p, body x)
+ *   [1] = pitch rate (q, body y)
+ *   [2] = yaw rate (r, body z)
  */
 typedef struct {
-    PIDController rollPID;
-    PIDController pitchPID;
-    PIDController yawPID;
+    PIDController rollRatePID;
+    PIDController pitchRatePID;
+    PIDController yawRatePID;
 } rateController;
 
 void rateCtrlInit(rateController *rateCtrl, 
