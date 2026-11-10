@@ -21,7 +21,11 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "PID.h"
+#include "altitudeControl.h"
+#include "rateControl.h"
+#include "positionControl.h"
+#include "attitudeControl.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
