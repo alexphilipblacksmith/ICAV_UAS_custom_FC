@@ -51,6 +51,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     CustomFC/controllers/positionControl.c
     CustomFC/controllers/rateControl.c
     CustomFC/controllers/attitudeControl.c
+    CustomFC/sensors/i2c_IMU.c
 )
 
 # Add include paths
