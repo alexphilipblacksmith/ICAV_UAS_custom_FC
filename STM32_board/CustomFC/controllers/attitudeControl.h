@@ -3,15 +3,7 @@
 
 #include<stdbool.h>
 
-//Define a structure with individual quaternion components
-typedef struct{
-    float w, x, y, z;
-}quaternion;
-
-//Define a structure with individual vector components
-typedef struct{
-    float x, y, z;
-}vector3;
+#include "quaternion.h"
 
 typedef struct{
     vector3 kp;
@@ -41,13 +33,5 @@ void attCtrlUpdate(attitudeController *attCtrl,
 
 
 void attCtrlReset(attitudeController *attCtrl);
-
-//Quaternion operation declarations
-quaternion quaternionConjugate(quaternion quat);
-quaternion quaternionNormalise(quaternion quat);
-quaternion quaternionMultiply(quaternion quat1, quaternion quat2);
-
-
-
 
 #endif //ATTITUDECONTROL_H

@@ -52,6 +52,15 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     CustomFC/controllers/rateControl.c
     CustomFC/controllers/attitudeControl.c
     CustomFC/sensors/i2c_IMU.c
+    CustomFC/sensors/i2cBus.c
+    CustomFC/receiver/crsf.c
+    CustomFC/receiver/rcInput.c
+    CustomFC/controllers/mixer.c
+    CustomFC/actuators/motorOutput.c
+    CustomFC/flight/flightControl.c
+    CustomFC/system/timing.c
+    CustomFC/system/debugUart.c
+    CustomFC/math/quaternion.c
 )
 
 # Add include paths
@@ -59,6 +68,12 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
     CustomFC/controllers
     CustomFC/sensors
+    CustomFC/receiver
+    CustomFC/actuators
+    CustomFC/math
+    CustomFC
+    CustomFC/flight
+    CustomFC/system
 )
 
 # Add project symbols (macros)

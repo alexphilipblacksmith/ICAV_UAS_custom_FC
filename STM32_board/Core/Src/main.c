@@ -21,13 +21,15 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "PID.h"
-#include "altitudeControl.h"
-#include "rateControl.h"
-#include "positionControl.h"
-#include "attitudeControl.h"
+
+#include "fcConfig.h"
 #include "i2c_IMU.h"
-#include "stm32f4xx_hal_gpio.h"
+#include "rcInput.h"
+#include "motorOutput.h"
+#include "flightControl.h"
+#include "timing.h"
+#include "debugUart.h"
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -48,9 +50,13 @@
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c1;
 
+TIM_HandleTypeDef htim1;
+
 UART_HandleTypeDef huart1;
+UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+
 
 /* USER CODE END PV */
 
@@ -59,15 +65,85 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_USART2_UART_Init(void);
+static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
 int _write(int file, char *ptr, int len){
-  HAL_UART_Transmit(&huart1, (uint8_t*)ptr, len, HAL_MAX_DELAY);
-  return len;
+  (void)file;
+  return debugUartWrite(ptr, len);
+}
+
+// Something we can't fly without failed at start-up: say so and blink the LED fast forever.
+// The motors stay stopped.
+static void startupFault(const char *what){
+  printf("%s failed - not flying\r\n", what);
+  while (1)
+  {
+    HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_6);
+    HAL_Delay(100);
+  }
+}
+
+// ESC calibration, PROPS OFF:
+// 1. Battery unplugged, board on USB. 2. Arm switch off, throttle stick at the top, radio on.
+// 3. Reset the board: it prints "ESC calibration". 4. Plug in the battery, wait for the ESC beeps.
+// 5. Throttle to the bottom, wait for the confirm beeps. 6. Unplug everything.
+// The throttle stick goes straight to every ESC until power-off.
+static void escCalibrationCheck(void){
+  radioCommand cmd = {0};
+  uint32_t start = HAL_GetTick();
+  bool linked = false;
+
+  while (HAL_GetTick() - start < 3000 && !linked)   // give the receiver time to link up
+  {
+    rcInputUpdate();
+    linked = rcInputGetCommand(&cmd);
+  }
+  if (!linked || cmd.armSwitch || cmd.throttle < 0.9f) return;
+
+  printf("ESC calibration: throttle goes straight to the ESCs. Power off to exit\r\n");
+  while (1)
+  {
+    rcInputUpdate();
+    if (rcInputGetCommand(&cmd)) motorWriteAllUs((uint16_t)(MOTOR_STOP_US + cmd.throttle * (MOTOR_MAX_US - MOTOR_STOP_US)));
+    else motorWriteAllUs(MOTOR_STOP_US);
+  }
+}
+
+static const char *armStateName(fcArmState s){
+  switch (s)
+  {
+    case FC_ARMED: return "ARMED";
+    case FC_FAILSAFE: return "FAILSAFE";
+    default: return "DISARMED";
+  }
+}
+
+// One status line, 10 Hz. Integers only (nano printf has no floats).
+// Accel in mm/s^2, gyro in mrad/s. Level and still: accel ~ (0, 0, -9810).
+// Tilt nose down: accel x < 0. Right side down: accel y < 0.
+// Roll right, nose up, yaw right (clockwise from above): each gyro axis goes positive.
+static void printStatus(const fcStatus *fc, const i2cIMUData *imu, bool linkUp, uint32_t maxLoopUs){
+  uint16_t pulses[4];
+  motorGetPulses(pulses);
+  const crsfParser *rc = rcInputGetParser();
+
+  char line[200];
+  int n = snprintf(line, sizeof(line),
+    "%s(%s)  acc %6d %6d %6d  gyro %5d %5d %5d  thr %3d%%  m %4u %4u %4u %4u  rc %s LQ %3u  loop %4lu us\r\n",
+    armStateName(fc->armState), fc->disarmReason,
+    (int)(imu->accelX * 1000.0f), (int)(imu->accelY * 1000.0f), (int)(imu->accelZ * 1000.0f),
+    (int)(imu->gyroX * 1000.0f), (int)(imu->gyroY * 1000.0f), (int)(imu->gyroZ * 1000.0f),
+    (int)(fc->thrust * 100.0f),
+    (unsigned)pulses[0], (unsigned)pulses[1], (unsigned)pulses[2], (unsigned)pulses[3],
+    linkUp ? "UP" : "LOST", (unsigned)rc->linkStats.uplinkLinkQuality, (unsigned long)maxLoopUs);
+  if (n > 0) debugUartWrite(line, n < (int)sizeof(line) ? n : (int)sizeof(line) - 1);
 }
 /* USER CODE END 0 */
 
@@ -102,11 +178,40 @@ int main(void)
   MX_GPIO_Init();
   MX_I2C1_Init();
   MX_USART1_UART_Init();
+  MX_USART2_UART_Init();
+  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
-  i2cImuInit();
 
+  // Motors stopped before anything else, so the ESCs see a valid stop signal
+  motorInit(&htim1);
+  debugUartInit();
+  setvbuf(stdout, NULL, _IOLBF, 128);   // printf sends a line at a time
+  timingInit();
+  printf("\r\nICAV FC starting\r\n");
 
-  
+  if (!i2cImuInit()) startupFault("MPU6050");
+
+  rcInputInit(&huart2);
+  escCalibrationCheck();
+
+  // Gyro bias: keep the drone still
+  while (!i2cImuCalibrateGyro(1000))
+  {
+    printf("Gyro calibration failed (moved?), retrying\r\n");
+    HAL_Delay(500);
+  }
+
+  flightControlInit();
+  printf("Ready. No attitude estimator yet, so arming is blocked\r\n");
+
+  i2cIMUData imu = {0};
+  const uint32_t periodUs = 1000000u / LOOP_RATE_HZ;
+  uint32_t lastLoopUs = micros();
+  uint32_t nextLoopUs = lastLoopUs + periodUs;
+  uint32_t loopCount = 0, maxLoopUs = 0, ledTick = 0;
+  int imuFailures = 0;
+
+  watchdogStart(100);   // if the loop ever hangs for 100 ms the board resets (motors stop on reset)
 
   /* USER CODE END 2 */
 
@@ -118,6 +223,48 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
+    // ---- Wait for the next slot (500 Hz) ----
+    while ((int32_t)(micros() - nextLoopUs) < 0) {}
+    uint32_t nowUs = micros();
+    float dt = (float)(nowUs - lastLoopUs) * 1e-6f;
+    lastLoopUs = nowUs;
+    nextLoopUs += periodUs;
+    if ((int32_t)(nowUs - nextLoopUs) > (int32_t)periodUs) nextLoopUs = nowUs + periodUs;   // way behind: don't try to catch up
+    loopCount++;
+
+    // ---- Sensors ----
+    rcInputUpdate();
+
+    if (i2cImuRead(&imu)) imuFailures = 0;
+    else imuFailures++;
+
+    // ---- Control ----
+    radioCommand cmd;
+    bool linkUp = rcInputGetCommand(&cmd);
+
+    vehicleState state;
+    state.attitude = (quaternion){1.0f, 0.0f, 0.0f, 0.0f};
+    state.attitudeValid = false;   // TODO: plug in an attitude estimator here, then set this to true
+    state.gyro = (vector3){imu.gyroX, imu.gyroY, imu.gyroZ};
+    state.imuHealthy = imuFailures < IMU_FAIL_LIMIT;
+    flightControlUpdate(&state, &cmd, linkUp, dt);
+
+    // ---- Housekeeping ----
+    const fcStatus *fc = flightControlStatus();
+    uint32_t loopUs = micros() - nowUs;
+    if (loopUs > maxLoopUs) maxLoopUs = loopUs;
+
+    // LED (active low): solid when armed, slow blink when disarmed
+    if (fc->armState != FC_DISARMED) HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
+    else if (++ledTick >= LOOP_RATE_HZ / 2) { ledTick = 0; HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_6); }
+
+    if (loopCount % DEBUG_RATE_DIVIDER == 7 && debugUartIdle())
+    {
+      printStatus(fc, &imu, linkUp, maxLoopUs);
+      maxLoopUs = 0;
+    }
+
+    watchdogKick();
   }
   /* USER CODE END 3 */
 }
@@ -142,7 +289,12 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLM = 16;
+  RCC_OscInitStruct.PLL.PLLN = 336;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 7;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -152,12 +304,12 @@ void SystemClock_Config(void)
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK)
   {
     Error_Handler();
   }
@@ -179,7 +331,7 @@ static void MX_I2C1_Init(void)
 
   /* USER CODE END I2C1_Init 1 */
   hi2c1.Instance = I2C1;
-  hi2c1.Init.ClockSpeed = 100000;
+  hi2c1.Init.ClockSpeed = 400000;
   hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
   hi2c1.Init.OwnAddress1 = 0;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
@@ -231,6 +383,126 @@ static void MX_USART1_UART_Init(void)
 }
 
 /**
+  * @brief USART2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART2_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART2_Init 0 */
+
+  /* USER CODE END USART2_Init 0 */
+
+  /* USER CODE BEGIN USART2_Init 1 */
+
+  /* USER CODE END USART2_Init 1 */
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 420000;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART2_Init 2 */
+
+  /* USER CODE END USART2_Init 2 */
+
+}
+
+/**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM1_Init(void)
+{
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+  /* 1 us ticks (168 MHz / 168), 2500 us period = 400 Hz. Starts at 1000 us = motors stopped */
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 167;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 2499;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 1000;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
+  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
+  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
+  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
+  sBreakDeadTimeConfig.DeadTime = 0;
+  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
+  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
+  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
+  if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+
+  /* USER CODE END TIM1_Init 2 */
+  HAL_TIM_MspPostInit(&htim1);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -244,6 +516,7 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOE_CLK_ENABLE();
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
   GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -266,6 +539,8 @@ static void MX_GPIO_Init(void)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
+  /* Motors off first - TIM1 keeps sending the stop pulse even with interrupts off */
+  motorEmergencyStop();
   /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
   while (1)
