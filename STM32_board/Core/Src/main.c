@@ -240,23 +240,35 @@ int main(void)
          imuCal.accelCalibrated ? "yes" : "NOT DONE", imuCal.levelTrimmed ? "yes" : "NOT DONE");
 
   rcInputInit(&huart2);
-  escCalibrationCheck();
 
-  // Gyro bias: keep the drone still
-  while (!i2cImuCalibrateGyro(1000))
-  {
-    printf("Gyro calibration failed (moved?), retrying\r\n");
-    HAL_Delay(500);
-  }
-
-  imuCalibrationCheck();
-
-  // Attitude estimate (Mahony): roll and pitch from the accelerometer to start, yaw = 0
   static attitudeEstimator attEst;
-  while (!attitudeInitFromAccel(&attEst))
+
+  if (RUN_STARTUP_CALIBRATIONS)
   {
-    printf("Attitude init failed (moving or IMU error), retrying\r\n");
-    HAL_Delay(500);
+    escCalibrationCheck();
+
+    // Gyro bias: keep the drone still
+    while (!i2cImuCalibrateGyro(1000))
+    {
+      printf("Gyro calibration failed (moved?), retrying\r\n");
+      HAL_Delay(500);
+    }
+
+    imuCalibrationCheck();
+
+    // Attitude estimate (Mahony): roll and pitch from the accelerometer to start, yaw = 0
+    while (!attitudeInitFromAccel(&attEst))
+    {
+      printf("Attitude init failed (moving or IMU error), retrying\r\n");
+      HAL_Delay(500);
+    }
+  }
+  else
+  {
+    // Bench test: no waiting. Gyro bias isn't removed, so the attitude will drift slowly.
+    // If this first try fails, the loop keeps retrying from the accelerometer.
+    printf("STARTUP CALIBRATIONS SKIPPED (RUN_STARTUP_CALIBRATIONS = false) - bench test only\r\n");
+    attitudeInitFromAccel(&attEst);
   }
 
   flightControlInit();

@@ -4,6 +4,13 @@
 /* All the tuning numbers in one place (like config.py in the simulation).
  * Gains are first guesses - tune them with the drone tied down. */
 
+/* ---- Startup ----
+ * true:  normal start-up: ESC calibration check, gyro calibration (drone must be still),
+ *        accel calibration / level trim stick check, attitude init retried until it works.
+ * false: bench test. Skips all of those and goes straight to the control loop and PWM outputs.
+ *        The gyro bias isn't removed, so set this back to true before flying. */
+#define RUN_STARTUP_CALIBRATIONS false
+
 /* ---- Loop ---- */
 #define LOOP_RATE_HZ        500         // main control loop
 #define DEBUG_RATE_DIVIDER  50          // status print every 50 loops (10 Hz)
