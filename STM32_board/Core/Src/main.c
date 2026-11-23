@@ -27,6 +27,8 @@
 #include "rcInput.h"
 #include "motorOutput.h"
 #include "flightControl.h"
+#include "attitudeEstimator.h"
+#include "imuCalibration.h"
 #include "timing.h"
 #include "debugUart.h"
 #include <stdio.h>
@@ -116,6 +118,25 @@ static void escCalibrationCheck(void){
   }
 }
 
+// Accelerometer calibration, picked with the sticks at power-up (arm switch off, throttle down):
+//   roll stick held full LEFT  -> accel calibration (pick the drone up, hold it still in many orientations)
+//   roll stick held full RIGHT -> level trim (drone on a level surface)
+// Runs after the gyro calibration, so keep the drone still until it starts. Power cycle afterwards.
+static void imuCalibrationCheck(void){
+  radioCommand cmd = {0};
+  uint32_t start = HAL_GetTick();
+  bool linked = false;
+  while (HAL_GetTick() - start < 1000 && !linked)
+  {
+    rcInputUpdate();
+    linked = rcInputGetCommand(&cmd);
+  }
+  if (!linked || cmd.armSwitch || cmd.throttle > 0.1f) return;
+
+  if (cmd.roll < -0.8f) imuCalRunAccel();
+  else if (cmd.roll > 0.8f) imuCalRunLevel();
+}
+
 static const char *armStateName(fcArmState s){
   switch (s)
   {
@@ -129,15 +150,19 @@ static const char *armStateName(fcArmState s){
 // Accel in mm/s^2, gyro in mrad/s. Level and still: accel ~ (0, 0, -9810).
 // Tilt nose down: accel x < 0. Right side down: accel y < 0.
 // Roll right, nose up, yaw right (clockwise from above): each gyro axis goes positive.
-static void printStatus(const fcStatus *fc, const i2cIMUData *imu, bool linkUp, uint32_t maxLoopUs){
+// att = estimated roll, pitch in degrees (right side down / nose up positive).
+static void printStatus(const fcStatus *fc, const i2cIMUData *imu, const attitudeEstimator *est, bool linkUp, uint32_t maxLoopUs){
+  float roll = 0.0f, pitch = 0.0f;
+  attEstGetRollPitch(est, &roll, &pitch);
   uint16_t pulses[4];
   motorGetPulses(pulses);
   const crsfParser *rc = rcInputGetParser();
 
-  char line[200];
+  char line[240];
   int n = snprintf(line, sizeof(line),
-    "%s(%s)  acc %6d %6d %6d  gyro %5d %5d %5d  thr %3d%%  m %4u %4u %4u %4u  rc %s LQ %3u  loop %4lu us\r\n",
+    "%s(%s)  att %4d %4d  acc %6d %6d %6d  gyro %5d %5d %5d  thr %3d%%  m %4u %4u %4u %4u  rc %s LQ %3u  loop %4lu us\r\n",
     armStateName(fc->armState), fc->disarmReason,
+    (int)(roll * 57.2958f), (int)(pitch * 57.2958f),
     (int)(imu->accelX * 1000.0f), (int)(imu->accelY * 1000.0f), (int)(imu->accelZ * 1000.0f),
     (int)(imu->gyroX * 1000.0f), (int)(imu->gyroY * 1000.0f), (int)(imu->gyroZ * 1000.0f),
     (int)(fc->thrust * 100.0f),
@@ -145,6 +170,26 @@ static void printStatus(const fcStatus *fc, const i2cIMUData *imu, bool linkUp, 
     linkUp ? "UP" : "LOST", (unsigned)rc->linkStats.uplinkLinkQuality, (unsigned long)maxLoopUs);
   if (n > 0) debugUartWrite(line, n < (int)sizeof(line) ? n : (int)sizeof(line) - 1);
 }
+// Starting attitude from the averaged accelerometer. Drone still, like the gyro calibration.
+static bool attitudeInitFromAccel(attitudeEstimator *est){
+  i2cIMUData imu;
+  vector3 sum = {0.0f, 0.0f, 0.0f};
+  int good = 0;
+  for (int i = 0; i < ATT_EST_INIT_SAMPLES; i++)
+  {
+    rcInputUpdate();
+    if (i2cImuRead(&imu))
+    {
+      sum.x += imu.accelX; sum.y += imu.accelY; sum.z += imu.accelZ;
+      good++;
+    }
+    HAL_Delay(2);
+  }
+  if (good < ATT_EST_INIT_SAMPLES / 2) return false;
+  float inv = 1.0f / (float)good;
+  return attEstInit(est, (vector3){sum.x * inv, sum.y * inv, sum.z * inv});
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -190,6 +235,9 @@ int main(void)
   printf("\r\nICAV FC starting\r\n");
 
   if (!i2cImuInit()) startupFault("MPU6050");
+  imuCalStatus imuCal = imuCalLoad();
+  printf("Accel calibration: %s, level trim: %s\r\n",
+         imuCal.accelCalibrated ? "yes" : "NOT DONE", imuCal.levelTrimmed ? "yes" : "NOT DONE");
 
   rcInputInit(&huart2);
   escCalibrationCheck();
@@ -201,8 +249,18 @@ int main(void)
     HAL_Delay(500);
   }
 
+  imuCalibrationCheck();
+
+  // Attitude estimate (Mahony): roll and pitch from the accelerometer to start, yaw = 0
+  static attitudeEstimator attEst;
+  while (!attitudeInitFromAccel(&attEst))
+  {
+    printf("Attitude init failed (moving or IMU error), retrying\r\n");
+    HAL_Delay(500);
+  }
+
   flightControlInit();
-  printf("Ready. No attitude estimator yet, so arming is blocked\r\n");
+  printf("Ready. Angle mode: arm switch on with throttle down to arm\r\n");
 
   i2cIMUData imu = {0};
   const uint32_t periodUs = 1000000u / LOOP_RATE_HZ;
@@ -235,7 +293,14 @@ int main(void)
     // ---- Sensors ----
     rcInputUpdate();
 
-    if (i2cImuRead(&imu)) imuFailures = 0;
+    if (i2cImuRead(&imu))
+    {
+      imuFailures = 0;
+      vector3 gyro = {imu.gyroX, imu.gyroY, imu.gyroZ};
+      vector3 accel = {imu.accelX, imu.accelY, imu.accelZ};
+      if (attEst.initialised) attEstUpdate(&attEst, gyro, accel, dt);
+      else attEstInit(&attEst, accel);   // lost it (NaN): restart from the accel. Disarms meanwhile
+    }
     else imuFailures++;
 
     // ---- Control ----
@@ -243,8 +308,8 @@ int main(void)
     bool linkUp = rcInputGetCommand(&cmd);
 
     vehicleState state;
-    state.attitude = (quaternion){1.0f, 0.0f, 0.0f, 0.0f};
-    state.attitudeValid = false;   // TODO: plug in an attitude estimator here, then set this to true
+    state.attitude = attEst.q;
+    state.attitudeValid = attEst.initialised;
     state.gyro = (vector3){imu.gyroX, imu.gyroY, imu.gyroZ};
     state.imuHealthy = imuFailures < IMU_FAIL_LIMIT;
     flightControlUpdate(&state, &cmd, linkUp, dt);
@@ -260,7 +325,7 @@ int main(void)
 
     if (loopCount % DEBUG_RATE_DIVIDER == 7 && debugUartIdle())
     {
-      printStatus(fc, &imu, linkUp, maxLoopUs);
+      printStatus(fc, &imu, &attEst, linkUp, maxLoopUs);
       maxLoopUs = 0;
     }
 

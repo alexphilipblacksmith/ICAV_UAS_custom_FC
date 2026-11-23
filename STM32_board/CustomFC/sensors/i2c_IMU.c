@@ -1,5 +1,7 @@
 #include "i2c_IMU.h"
 #include "fcConfig.h"
+#include <stdbool.h>
+#include <stddef.h>
 
 #define imuAddress MPU6050_ADDRESS
 #define whoAmIAddress 0x75
@@ -33,6 +35,10 @@
 #define calibrationMaxSpread 0.035f //[rad/s], about 2 deg/s - more than this and it moved
 
 static float gyroBias[3] = {0.0f, 0.0f, 0.0f}; //[rad/s], sensor axes
+
+static bool correctionOn = false;
+static imuCorrection correction;
+static quaternion trimQuat = {1.0f, 0.0f, 0.0f, 0.0f};   //board -> frame
 
 
 //Raw sensor-axis accel [g], gyro [rad/s, bias not removed] and temperature
@@ -88,6 +94,18 @@ uint8_t i2cImuInit(void){
 }
 
 
+void i2cImuSetCorrection(const imuCorrection *corr){
+
+    if(corr == NULL){
+        correctionOn = false;
+        return;
+    }
+    correction = *corr;
+    trimQuat = quaternionFromEuler(corr->trimRoll, corr->trimPitch, 0.0f);
+    correctionOn = true;
+}
+
+
 uint8_t i2cImuCalibrateGyro(uint16_t samples){
 
     if(samples == 0) return 0;
@@ -133,12 +151,27 @@ uint8_t i2cImuRead(i2cIMUData *imuData){
     }
 
     for(int i = 0; i < 3; i++){
-        accel[i] *= gravity;
         gyro[i] -= gyroBias[i];
     }
 
-    sensorToBody(accel, &imuData->accelX, &imuData->accelY, &imuData->accelZ);
-    sensorToBody(gyro, &imuData->gyroX, &imuData->gyroY, &imuData->gyroZ);
+    vector3 a, w;
+    sensorToBody(accel, &a.x, &a.y, &a.z);     //[g]
+    sensorToBody(gyro, &w.x, &w.y, &w.z);
+
+    if(correctionOn){
+        a.x = correction.accelScale.x * (a.x - correction.accelOffset.x);
+        a.y = correction.accelScale.y * (a.y - correction.accelOffset.y);
+        a.z = correction.accelScale.z * (a.z - correction.accelOffset.z);
+        a = quaternionRotate(trimQuat, a);
+        w = quaternionRotate(trimQuat, w);
+    }
+
+    imuData->accelX = a.x * gravity;
+    imuData->accelY = a.y * gravity;
+    imuData->accelZ = a.z * gravity;
+    imuData->gyroX = w.x;
+    imuData->gyroY = w.y;
+    imuData->gyroZ = w.z;
     imuData->temp = temp;
 
     return 1;
