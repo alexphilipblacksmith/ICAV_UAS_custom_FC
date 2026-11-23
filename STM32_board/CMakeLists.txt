@@ -54,14 +54,15 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     CustomFC/sensors/i2c_IMU.c
     CustomFC/sensors/i2cBus.c
     CustomFC/sensors/accelFit.c
-    CustomFC/sensors/imuCalibration.c
+    CustomFC/sensors/imuCalibration.c
     CustomFC/receiver/crsf.c
     CustomFC/receiver/rcInput.c
     CustomFC/controllers/mixer.c
-    CustomFC/actuators/motorOutput.c
+    CustomFC/actuators/motorOutput.c
     CustomFC/flight/flightControl.c
     CustomFC/system/timing.c
     CustomFC/system/debugUart.c
+    CustomFC/test/pwmTest.c
     CustomFC/math/quaternion.c
     CustomFC/estimation/attitudeEstimator.c
 )
@@ -77,6 +78,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     CustomFC
     CustomFC/flight
     CustomFC/system
+    CustomFC/test
     CustomFC/estimation
 )
 

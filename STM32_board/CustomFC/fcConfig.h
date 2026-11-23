@@ -11,6 +11,17 @@
  *        The gyro bias isn't removed, so set this back to true before flying. */
 #define RUN_STARTUP_CALIBRATIONS false
 
+/* ---- PWM output test (CustomFC/test/pwmTest.c) ----
+ * 1: main.c builds ONLY the PWM test: every motor channel sweeps 1000 -> 2000 us and repeats.
+ *    The IMU, radio, estimator and flight control code isn't compiled in. PROPS OFF - 2000 us is full throttle.
+ * 0: normal flight firmware.
+ * (1/0, not true/false: it's used in #if) */
+#define RUN_PWM_TEST        1
+#define PWM_TEST_MIN_US     1000
+#define PWM_TEST_MAX_US     2000
+#define PWM_TEST_STEP_US    100
+#define PWM_TEST_HOLD_MS    5000
+
 /* ---- Loop ---- */
 #define LOOP_RATE_HZ        500         // main control loop
 #define DEBUG_RATE_DIVIDER  50          // status print every 50 loops (10 Hz)

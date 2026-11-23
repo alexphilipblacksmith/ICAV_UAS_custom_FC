@@ -29,6 +29,7 @@
 #include "flightControl.h"
 #include "attitudeEstimator.h"
 #include "imuCalibration.h"
+#include "pwmTest.h"
 #include "timing.h"
 #include "debugUart.h"
 #include <stdio.h>
@@ -80,6 +81,8 @@ int _write(int file, char *ptr, int len){
   (void)file;
   return debugUartWrite(ptr, len);
 }
+
+#if !RUN_PWM_TEST   // everything below is flight code, not built for the PWM test
 
 // Something we can't fly without failed at start-up: say so and blink the LED fast forever.
 // The motors stay stopped.
@@ -190,6 +193,8 @@ static bool attitudeInitFromAccel(attitudeEstimator *est){
   return attEstInit(est, (vector3){sum.x * inv, sum.y * inv, sum.z * inv});
 }
 
+#endif // !RUN_PWM_TEST
+
 /* USER CODE END 0 */
 
 /**
@@ -234,6 +239,10 @@ int main(void)
   timingInit();
   printf("\r\nICAV FC starting\r\n");
 
+#if RUN_PWM_TEST
+  // PWM test build: only the motor outputs and the debug UART. See fcConfig.h
+  pwmTestInit();
+#else
   if (!i2cImuInit()) startupFault("MPU6050");
   imuCalStatus imuCal = imuCalLoad();
   printf("Accel calibration: %s, level trim: %s\r\n",
@@ -282,6 +291,7 @@ int main(void)
   int imuFailures = 0;
 
   watchdogStart(100);   // if the loop ever hangs for 100 ms the board resets (motors stop on reset)
+#endif // RUN_PWM_TEST
 
   /* USER CODE END 2 */
 
@@ -293,6 +303,9 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
+#if RUN_PWM_TEST
+    pwmTestUpdate();
+#else
     // ---- Wait for the next slot (500 Hz) ----
     while ((int32_t)(micros() - nextLoopUs) < 0) {}
     uint32_t nowUs = micros();
@@ -342,6 +355,7 @@ int main(void)
     }
 
     watchdogKick();
+#endif // RUN_PWM_TEST
   }
   /* USER CODE END 3 */
 }
